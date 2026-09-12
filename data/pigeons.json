@@ -1,13 +1,59 @@
 {
   "pigeons": [
     {
+      "ringNo": "CHN-2026-104",
+      "owner": "钱七",
+      "fatherRing": "",
+      "motherRing": "",
+      "color": "麒麟花",
+      "loft": "北岸A棚",
+      "vaccines": [],
+      "transfers": [],
+      "races": []
+    },
+    {
+      "ringNo": "CHN-2026-201",
+      "owner": "赵六",
+      "color": "白",
+      "loft": "南山B棚",
+      "vaccines": [],
+      "transfers": [],
+      "races": []
+    },
+    {
+      "ringNo": "CHN-2026-103",
+      "owner": "王五",
+      "color": "红轮",
+      "loft": "北岸A棚",
+      "vaccines": [],
+      "transfers": [],
+      "races": []
+    },
+    {
+      "ringNo": "CHN-2026-102",
+      "owner": "李四",
+      "color": "雨点",
+      "loft": "北岸A棚",
+      "vaccines": [],
+      "transfers": [],
+      "races": []
+    },
+    {
+      "ringNo": "CHN-2026-101",
+      "owner": "张三",
+      "color": "灰",
+      "loft": "北岸A棚",
+      "vaccines": [],
+      "transfers": [],
+      "races": []
+    },
+    {
       "ringNo": "CHN-2026-001",
       "owner": "北岸棚",
       "fatherRing": "CHN-2022-188",
       "motherRing": "CHN-2023-512",
       "color": "灰",
       "loft": "北岸A棚",
-      "status": "正常",
       "vaccines": [
         {
           "date": "2026-04-01",
@@ -32,133 +78,12 @@
       ]
     },
     {
-      "ringNo": "CHN-2026-002",
-      "owner": "北岸棚",
-      "fatherRing": "CHN-2022-188",
-      "motherRing": "",
-      "color": "雨点",
-      "loft": "北岸A棚",
-      "status": "正常",
-      "vaccines": [],
-      "transfers": [],
-      "races": []
-    },
-    {
-      "ringNo": "CHN-2026-003",
-      "owner": "北岸棚",
-      "fatherRing": "",
-      "motherRing": "CHN-2023-512",
-      "color": "灰白条",
-      "loft": "北岸A棚",
-      "status": "正常",
-      "vaccines": [],
-      "transfers": [],
-      "races": []
-    },
-    {
-      "ringNo": "CHN-2026-004",
-      "owner": "北岸棚",
-      "fatherRing": "",
-      "motherRing": "",
-      "color": "绛",
-      "loft": "北岸A棚",
-      "status": "正常",
-      "vaccines": [],
-      "transfers": [],
-      "races": []
-    },
-    {
-      "ringNo": "CHN-2026-005",
-      "owner": "周东风",
-      "fatherRing": "",
-      "motherRing": "",
-      "color": "雨点",
-      "loft": "东风B棚",
-      "status": "正常",
-      "vaccines": [],
-      "transfers": [],
-      "races": []
-    },
-    {
-      "ringNo": "CHN-2026-006",
-      "owner": "周东风",
-      "fatherRing": "",
-      "motherRing": "",
-      "color": "灰",
-      "loft": "东风B棚",
-      "status": "正常",
-      "vaccines": [],
-      "transfers": [],
-      "races": []
-    },
-    {
-      "ringNo": "CHN-2026-007",
-      "owner": "周东风",
-      "fatherRing": "",
-      "motherRing": "",
-      "color": "黑",
-      "loft": "东风B棚",
-      "status": "正常",
-      "vaccines": [],
-      "transfers": [],
-      "races": []
-    },
-    {
-      "ringNo": "CHN-2026-008",
-      "owner": "南云鸽舍",
-      "fatherRing": "",
-      "motherRing": "",
-      "color": "红轮",
-      "loft": "南云C棚",
-      "status": "正常",
-      "vaccines": [],
-      "transfers": [],
-      "races": []
-    },
-    {
-      "ringNo": "CHN-2026-009",
-      "owner": "南云鸽舍",
-      "fatherRing": "",
-      "motherRing": "",
-      "color": "白花",
-      "loft": "南云C棚",
-      "status": "正常",
-      "vaccines": [],
-      "transfers": [],
-      "races": []
-    },
-    {
-      "ringNo": "CHN-2026-010",
-      "owner": "南云鸽舍",
-      "fatherRing": "",
-      "motherRing": "",
-      "color": "雨点",
-      "loft": "南云C棚",
-      "status": "正常",
-      "vaccines": [],
-      "transfers": [],
-      "races": []
-    },
-    {
-      "ringNo": "CHN-2026-011",
-      "owner": "北岸棚",
-      "fatherRing": "",
-      "motherRing": "",
-      "color": "灰",
-      "loft": "北岸A棚",
-      "status": "正常",
-      "vaccines": [],
-      "transfers": [],
-      "races": []
-    },
-    {
       "ringNo": "CHN-2022-188",
       "owner": "育种棚",
       "fatherRing": "",
       "motherRing": "",
       "color": "雨点",
       "loft": "种鸽棚",
-      "status": "正常",
       "vaccines": [],
       "transfers": [],
       "races": []
@@ -170,10 +95,185 @@
       "motherRing": "",
       "color": "红轮",
       "loft": "种鸽棚",
-      "status": "正常",
       "vaccines": [],
       "transfers": [],
       "races": []
     }
-  ]
+  ],
+  "races": [
+    {
+      "id": "R-0001",
+      "name": "300公里资格赛",
+      "distanceKm": 300,
+      "lofts": [
+        "北岸A棚"
+      ],
+      "roster": [
+        "CHN-2026-001",
+        "CHN-2026-101",
+        "CHN-2026-102",
+        "CHN-2026-103",
+        "CHN-2026-104"
+      ],
+      "status": "closed",
+      "releaseTime": "2026-09-12T07:00:00.000Z",
+      "createdAt": "2026-09-12T21:15:12.855Z",
+      "publishedAt": "2026-09-12T21:15:12.970Z",
+      "closedAt": "2026-09-12T21:15:13.988Z",
+      "checkins": [
+        {
+          "ringNo": "CHN-2026-101",
+          "loft": "北岸A棚",
+          "arrivalTime": "2026-09-12T12:00:00.000Z",
+          "elapsedMin": 300,
+          "speed": 1000,
+          "rank": 2,
+          "status": "valid",
+          "voidReason": null,
+          "recordedAt": "2026-09-12T21:15:13.168Z"
+        },
+        {
+          "ringNo": "CHN-2026-102",
+          "loft": "北岸A棚",
+          "arrivalTime": "2026-09-12T11:10:00.000Z",
+          "elapsedMin": 250,
+          "speed": 1200,
+          "rank": 1,
+          "status": "valid",
+          "voidReason": null,
+          "recordedAt": "2026-09-12T21:15:13.234Z"
+        },
+        {
+          "ringNo": "CHN-2026-103",
+          "loft": "北岸A棚",
+          "arrivalTime": "2026-09-12T11:40:00.000Z",
+          "elapsedMin": 280,
+          "speed": 1071.4286,
+          "rank": null,
+          "status": "void",
+          "voidReason": "足环扫描异常",
+          "recordedAt": "2026-09-12T21:15:13.287Z"
+        }
+      ]
+    },
+    {
+      "id": "R-0002",
+      "name": "200公里热身",
+      "distanceKm": 200,
+      "lofts": [
+        "北岸A棚"
+      ],
+      "roster": [
+        "CHN-2026-001",
+        "CHN-2026-101",
+        "CHN-2026-102",
+        "CHN-2026-103",
+        "CHN-2026-104"
+      ],
+      "status": "draft",
+      "releaseTime": null,
+      "createdAt": "2026-09-12T21:15:13.727Z",
+      "publishedAt": null,
+      "closedAt": null,
+      "checkins": []
+    }
+  ],
+  "audit": [
+    {
+      "seq": 1,
+      "ts": "2026-09-12T21:15:12.855Z",
+      "actor": "admin",
+      "action": "race.create",
+      "raceId": "R-0001",
+      "detail": "创建赛事「300公里资格赛」,距离 300 公里,棚号 北岸A棚"
+    },
+    {
+      "seq": 2,
+      "ts": "2026-09-12T21:15:12.855Z",
+      "actor": "admin",
+      "action": "roster.set",
+      "raceId": "R-0001",
+      "detail": "按棚号圈定参赛名单 5 羽: CHN-2026-001、CHN-2026-101、CHN-2026-102、CHN-2026-103、CHN-2026-104"
+    },
+    {
+      "seq": 3,
+      "ts": "2026-09-12T21:15:12.970Z",
+      "actor": "admin",
+      "action": "race.publish",
+      "raceId": "R-0001",
+      "detail": "发布赛事,锁定名单 5 羽"
+    },
+    {
+      "seq": 4,
+      "ts": "2026-09-12T21:15:13.034Z",
+      "actor": "admin",
+      "action": "race.release",
+      "raceId": "R-0001",
+      "detail": "放飞时间 2026-09-12T07:00:00.000Z"
+    },
+    {
+      "seq": 5,
+      "ts": "2026-09-12T21:15:13.168Z",
+      "actor": "admin",
+      "action": "checkin.record",
+      "raceId": "R-0001",
+      "ringNo": "CHN-2026-101",
+      "detail": "归巢报到: CHN-2026-101(北岸A棚)归巢 2026-09-12T12:00:00.000Z,用时 300 分钟,分速 1000,暂列第 1 名"
+    },
+    {
+      "seq": 6,
+      "ts": "2026-09-12T21:15:13.234Z",
+      "actor": "admin",
+      "action": "checkin.record",
+      "raceId": "R-0001",
+      "ringNo": "CHN-2026-102",
+      "detail": "归巢报到: CHN-2026-102(北岸A棚)归巢 2026-09-12T11:10:00.000Z,用时 250 分钟,分速 1200,暂列第 1 名"
+    },
+    {
+      "seq": 7,
+      "ts": "2026-09-12T21:15:13.287Z",
+      "actor": "admin",
+      "action": "checkin.record",
+      "raceId": "R-0001",
+      "ringNo": "CHN-2026-103",
+      "detail": "归巢报到: CHN-2026-103(北岸A棚)归巢 2026-09-12T11:40:00.000Z,用时 280 分钟,分速 1071.4286,暂列第 2 名"
+    },
+    {
+      "seq": 8,
+      "ts": "2026-09-12T21:15:13.727Z",
+      "actor": "admin",
+      "action": "race.create",
+      "raceId": "R-0002",
+      "detail": "创建赛事「200公里热身」,距离 200 公里,棚号 北岸A棚"
+    },
+    {
+      "seq": 9,
+      "ts": "2026-09-12T21:15:13.727Z",
+      "actor": "admin",
+      "action": "roster.set",
+      "raceId": "R-0002",
+      "detail": "按棚号圈定参赛名单 5 羽: CHN-2026-001、CHN-2026-101、CHN-2026-102、CHN-2026-103、CHN-2026-104"
+    },
+    {
+      "seq": 10,
+      "ts": "2026-09-12T21:15:13.818Z",
+      "actor": "admin",
+      "action": "checkin.void",
+      "raceId": "R-0001",
+      "ringNo": "CHN-2026-103",
+      "detail": "作废 CHN-2026-103 的报到,原因: 足环扫描异常;名次已重排"
+    },
+    {
+      "seq": 11,
+      "ts": "2026-09-12T21:15:13.988Z",
+      "actor": "admin",
+      "action": "race.close",
+      "raceId": "R-0001",
+      "detail": "封存赛事,有效报到 2 羽,冠军 CHN-2026-102(分速 1200)"
+    }
+  ],
+  "meta": {
+    "raceSeq": 2,
+    "auditSeq": 11
+  }
 }
