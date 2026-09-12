@@ -1,345 +1,247 @@
-import { test } from "node:test";
+import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdtempSync, cpSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApp } from "../server.js";
+import { setTimeout as sleep } from "node:timers/promises";
 
-const LOFT = "东港C棚";      // 本场圈定棚号
-const OTHER_LOFT = "西山D棚"; // 未入选棚号
+const ROOT = join(import.meta.dirname, "..");
+const PORT = 3091;
+const BASE = `http://127.0.0.1:${PORT}`;
 
-async function startApp(options = {}) {
-  const dir = await mkdtemp(join(tmpdir(), "pigeon-test-"));
-  const dbPath = join(dir, "pigeons.json");
-  const { server, store, ready } = createApp({ dbPath, ...options });
-  await ready;
-  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  const base = `http://127.0.0.1:${server.address().port}`;
-  return {
-    base,
-    server,
-    store,
-    dbPath,
-    dir,
-    async close() {
-      const done = new Promise(resolve => server.close(resolve));
-      server.closeIdleConnections();
-      await done;
-      await rm(dir, { recursive: true, force: true });
-    }
-  };
-}
+let serverProc = null;
+let dataDir = null;
 
-async function api(base, path, { method = "GET", body } = {}) {
-  const res = await fetch(base + path, {
-    method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined
+function startServer(envPort = PORT) {
+  const proc = spawn(process.execPath, [join(ROOT, "server.js")], {
+    cwd: ROOT,
+    env: { ...process.env, PORT: String(envPort), DATA_DIR: dataDir },
+    stdio: ["ignore", "pipe", "pipe"]
   });
-  return { status: res.status, data: await res.json() };
+  proc.stdout.on("data", d => process.stdout.write(`[srv] ${d}`));
+  proc.stderr.on("data", d => process.stderr.write(`[srv] ${d}`));
+  return proc;
 }
 
-/** 造一场已放飞的 300 公里赛事:东港C棚 3 羽参赛,西山D棚 1 羽未入选。 */
-async function setupReleasedRace(base) {
-  for (const p of [
-    { ringNo: "CHN-2026-101", owner: "张三", color: "灰", loft: LOFT },
-    { ringNo: "CHN-2026-102", owner: "李四", color: "雨点", loft: LOFT },
-    { ringNo: "CHN-2026-103", owner: "王五", color: "红轮", loft: LOFT },
-    { ringNo: "CHN-2026-201", owner: "赵六", color: "白", loft: OTHER_LOFT }
-  ]) {
-    const res = await api(base, "/api/pigeons", { method: "POST", body: p });
-    assert.equal(res.status, 201);
+async function waitHealthy(retries = 40) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const r = await fetch(`${BASE}/healthz`);
+      if (r.ok) return;
+    } catch {}
+    await sleep(100);
   }
-  const created = await api(base, "/api/races", {
-    method: "POST",
-    body: { name: "300公里资格赛", distanceKm: 300, lofts: [LOFT] }
-  });
-  assert.equal(created.status, 201);
-  const race = created.data;
-  assert.equal(race.status, "draft");
-  assert.deepEqual(race.roster, ["CHN-2026-101", "CHN-2026-102", "CHN-2026-103"], "按棚号自动圈定名单");
-  await api(base, `/api/races/${race.id}/publish`, { method: "POST" });
-  await api(base, `/api/races/${race.id}/release`, {
-    method: "POST",
-    body: { releaseTime: "2026-09-12T07:00:00.000Z" }
-  });
-  return race;
+  throw new Error("server did not become healthy");
 }
 
-test("完整流程:发布赛事→圈定名单→放飞→报到生成分速与名次", async () => {
-  const app = await startApp();
-  try {
-    const race = await setupReleasedRace(app.base);
-    // 101 用时 300 分钟 → 分速 1000;102 用时 250 分钟 → 分速 1200(更快,应为第一)
-    const c1 = await api(app.base, `/api/races/${race.id}/checkins`, {
-      method: "POST",
-      body: { ringNo: "CHN-2026-101", loft: LOFT, arrivalTime: "2026-09-12T12:00:00.000Z" }
-    });
-    assert.equal(c1.status, 201);
-    assert.equal(c1.data.entry.speed, 1000);
-    assert.equal(c1.data.entry.rank, 1);
-    const c2 = await api(app.base, `/api/races/${race.id}/checkins`, {
-      method: "POST",
-      body: { ringNo: "CHN-2026-102", loft: LOFT, arrivalTime: "2026-09-12T11:10:00.000Z" }
-    });
-    assert.equal(c2.data.entry.speed, 1200);
-    assert.equal(c2.data.entry.rank, 1, "分速更高者名次靠前");
-    const detail = (await api(app.base, `/api/races/${race.id}`)).data;
-    assert.equal(detail.checkins.find(c => c.ringNo === "CHN-2026-102").rank, 1);
-    assert.equal(detail.checkins.find(c => c.ringNo === "CHN-2026-101").rank, 2, "名次随新报到自动重排");
-  } finally {
-    await app.close();
-  }
-});
+async function post(path, body, headers = {}) {
+  const r = await fetch(BASE + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body)
+  });
+  const json = await r.json().catch(() => ({}));
+  return { status: r.status, json };
+}
+const get = path => fetch(BASE + path).then(r => r.json());
 
-test("拦截:重复报到", async () => {
-  const app = await startApp();
-  try {
-    const race = await setupReleasedRace(app.base);
-    const body = { ringNo: "CHN-2026-101", loft: LOFT, arrivalTime: "2026-09-12T12:00:00.000Z" };
-    const first = await api(app.base, `/api/races/${race.id}/checkins`, { method: "POST", body });
+async function setupRace() {
+  const race = await (await fetch(BASE + "/api/races", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "回归测试赛", distance: 500000, lofts: ["北岸A棚", "南岸B棚"] })
+  })).json();
+  await post(`/api/races/${race.id}/roster`, { lofts: ["北岸A棚", "南岸B棚"] });
+  await post(`/api/races/${race.id}/release`, { releaseAt: "2026-09-20T07:00" });
+  return race.id;
+}
+
+describe("赛事运营回归", () => {
+  before(async () => {
+    dataDir = mkdtempSync(join(tmpdir(), "pigeon-reg-"));
+    cpSync(join(ROOT, "data", "pigeons.json"), join(dataDir, "pigeons.json"));
+    serverProc = startServer();
+    await waitHealthy();
+  });
+  after(async () => {
+    serverProc?.kill("SIGTERM");
+    await sleep(200);
+  });
+
+  test("旧档案迁移：pigeons.json 中的历史档案可查询，血统关系保留", async () => {
+    const list = await get("/legacy/api/pigeons");
+    const old = list.find(p => p.ringNo === "CHN-2026-001");
+    assert.ok(old, "旧档案 CHN-2026-001 必须迁移成功");
+    assert.equal(old.loft, "北岸A棚");
+    const rel = await (await fetch(BASE + "/legacy/api/pigeons/CHN-2026-001/relation")).json();
+    assert.equal(rel.father.ringNo, "CHN-2022-188");
+    assert.equal(rel.mother.ringNo, "CHN-2023-512");
+    assert.ok(rel.pigeon.races.some(r => r.event === "120公里训放"), "旧成绩必须保留");
+  });
+
+  test("圈定名单：正常鸽入选，伤病鸽剔除，圈定动作有审计", async () => {
+    const rid = await setupRace();
+    const detail = await get(`/api/races/${rid}`);
+    const rings = detail.entries.map(e => e.ring_no);
+    assert.ok(rings.includes("CHN-2026-101"));
+    assert.ok(!rings.includes("CHN-2026-103"), "伤病鸽 103 不得入选");
+    const logs = await get(`/api/audit?entityType=race&entityId=${rid}`);
+    const rosterLog = logs.find(l => l.action === "roster.select" && l.result === "success");
+    assert.ok(rosterLog);
+    assert.deepEqual(rosterLog.detail.skipped.map(s => s.ringNo), ["CHN-2026-103"]);
+  });
+
+  test("重复报到拦截：同一羽赛鸽第二次报到被拒且只产生一条成绩", async () => {
+    const rid = await setupRace();
+    const first = await post(`/api/races/${rid}/arrivals`, { ringNo: "CHN-2026-201", arrivedAt: "2026-09-20T13:10" });
     assert.equal(first.status, 201);
-    const dup = await api(app.base, `/api/races/${race.id}/checkins`, { method: "POST", body });
-    assert.equal(dup.status, 409);
-    assert.equal(dup.data.error, "duplicate_checkin");
-    const detail = (await api(app.base, `/api/races/${race.id}`)).data;
-    assert.equal(detail.checkins.length, 1, "重复报到未产生第二笔记录");
-  } finally {
-    await app.close();
-  }
-});
+    const dup = await post(`/api/races/${rid}/arrivals`, { ringNo: "CHN-2026-201", arrivedAt: "2026-09-20T14:00" });
+    assert.equal(dup.status, 422);
+    assert.equal(dup.json.error, "duplicate_arrival");
+    const detail = await get(`/api/races/${rid}`);
+    assert.equal(detail.arrivals.filter(a => a.ring_no === "CHN-2026-201").length, 1);
+    const denied = detail.audit.filter(l => l.result === "denied" && l.detail.code === "duplicate_arrival");
+    assert.equal(denied.length, 1, "拒绝事件必须留痕且只有一条");
+  });
 
-test("拦截:并发重复报到只成功一笔", async () => {
-  const app = await startApp();
-  try {
-    const race = await setupReleasedRace(app.base);
-    const body = { ringNo: "CHN-2026-101", loft: LOFT, arrivalTime: "2026-09-12T12:00:00.000Z" };
+  test("并发报到：12 个并发同环请求恰好 1 条成功，其余全部拦截", async () => {
+    const rid = await setupRace();
     const results = await Promise.all(
-      Array.from({ length: 10 }, () => api(app.base, `/api/races/${race.id}/checkins`, { method: "POST", body }))
+      Array.from({ length: 12 }, (_, i) =>
+        post(`/api/races/${rid}/arrivals`, { ringNo: "CHN-2026-202", arrivedAt: "2026-09-20T13:05" }, { "x-request-id": `cc-${i}` }))
     );
     const ok = results.filter(r => r.status === 201);
-    const dup = results.filter(r => r.status === 409 && r.data.error === "duplicate_checkin");
-    assert.equal(ok.length, 1, "并发下仅一笔报到成功");
-    assert.equal(dup.length, 9);
-    const detail = (await api(app.base, `/api/races/${race.id}`)).data;
-    assert.equal(detail.checkins.length, 1);
-    // 磁盘文件与内存一致,无半笔记录
-    const onDisk = JSON.parse(await readFile(app.dbPath, "utf8"));
-    assert.equal(onDisk.races.find(r => r.id === race.id).checkins.length, 1);
-  } finally {
-    await app.close();
-  }
+    const blocked = results.filter(r => r.status === 422 && r.json.error === "duplicate_arrival");
+    assert.equal(ok.length, 1, `成功数应为 1，实际 ${ok.length}`);
+    assert.equal(blocked.length, 11, `拦截数应为 11，实际 ${blocked.length}`);
+    const detail = await get(`/api/races/${rid}`);
+    assert.equal(detail.arrivals.filter(a => a.ring_no === "CHN-2026-202").length, 1);
+  });
+
+  test("失败恢复：故障注入后整笔回滚无半笔记录，重试成功", async () => {
+    const rid = await setupRace();
+    await post(`/api/races/${rid}/arrivals`, { ringNo: "CHN-2026-203", arrivedAt: "2026-09-20T13:20" });
+    const before = await get(`/api/races/${rid}`);
+    const countBefore = before.arrivals.length;
+    const rankBefore = before.arrivals.map(a => [a.rank, a.ring_no]);
+
+    const failed = await post(`/api/races/${rid}/arrivals`,
+      { ringNo: "CHN-2026-202", arrivedAt: "2026-09-20T13:05" },
+      { "x-fault": "arrival-insert" });
+    assert.equal(failed.status, 500, "故障注入应返回 500");
+
+    const after = await get(`/api/races/${rid}`);
+    assert.equal(after.arrivals.length, countBefore, "失败后成绩数量必须不变（无半笔）");
+    assert.ok(!after.arrivals.some(a => a.ring_no === "CHN-2026-202"), "失败插入的报到必须回滚");
+    assert.deepEqual(after.arrivals.map(a => [a.rank, a.ring_no]), rankBefore, "失败不得改动名次");
+    assert.ok(!after.audit.some(l => l.action === "rank.recompute" && l.detail.reason === "checkin:CHN-2026-202"),
+      "失败事务中的重排审计也必须回滚");
+
+    // 恢复：去掉故障头后正常报到成功
+    const retry = await post(`/api/races/${rid}/arrivals`, { ringNo: "CHN-2026-202", arrivedAt: "2026-09-20T13:05" });
+    assert.equal(retry.status, 201);
+    assert.equal(retry.json.ring_no, "CHN-2026-202");
+    assert.equal(retry.json.rank, 1, "13:05 归巢应为第 1 名");
+  });
+
+  test("拦截矩阵：未入选、跨棚、状态异常、放飞前、关闭后", async () => {
+    const rid = await setupRace();
+    const released = await get(`/api/races/${rid}`);
+    assert.equal(released.status, "released");
+
+    const notEntered = await post(`/api/races/${rid}/arrivals`, { ringNo: "CHN-2026-301", arrivedAt: "2026-09-20T13:20" });
+    assert.equal(notEntered.json.error, "not_entered");
+    const unknown = await post(`/api/races/${rid}/arrivals`, { ringNo: "CHN-9999-999", arrivedAt: "2026-09-20T13:20" });
+    assert.equal(unknown.json.error, "pigeon_not_found");
+
+    // 入名单后转棚 → 跨棚拦截
+    await post("/api/pigeons/CHN-2026-104/transfer", { loft: "西二C棚" });
+    const cross = await post(`/api/races/${rid}/arrivals`, { ringNo: "CHN-2026-104", arrivedAt: "2026-09-20T13:20" });
+    assert.equal(cross.json.error, "cross_loft");
+    await post("/api/pigeons/CHN-2026-104/transfer", { loft: "北岸A棚" });
+
+    // 入选鸽放飞后状态变异常 → 报到拦截
+    await post("/api/pigeons/CHN-2026-102/status", { status: "injured" });
+    const abnormal = await post(`/api/races/${rid}/arrivals`, { ringNo: "CHN-2026-102", arrivedAt: "2026-09-20T13:20" });
+    assert.equal(abnormal.json.error, "abnormal_status");
+    await post("/api/pigeons/CHN-2026-102/status", { status: "normal" });
+
+    // 关闭后拦截
+    await post(`/api/races/${rid}/close`, {});
+    const closed = await post(`/api/races/${rid}/arrivals`, { ringNo: "CHN-2026-101", arrivedAt: "2026-09-20T13:20" });
+    assert.equal(closed.json.error, "race_closed");
+  });
+
+  test("成绩调整留痕并重算名次；分速=距离/用时（米/分）", async () => {
+    const rid = await setupRace();
+    await post(`/api/races/${rid}/arrivals`, { ringNo: "CHN-2026-101", arrivedAt: "2026-09-20T13:40" });
+    await post(`/api/races/${rid}/arrivals`, { ringNo: "CHN-2026-201", arrivedAt: "2026-09-20T13:10" });
+    let detail = await get(`/api/races/${rid}`);
+    const first = detail.arrivals.find(a => a.ring_no === "CHN-2026-201");
+    assert.equal(first.rank, 1);
+    assert.equal(first.speed_m_per_min, 1351.351); // 500000m / 370min
+
+    const adjusted = await post(`/api/races/${rid}/arrivals/CHN-2026-201/adjust`,
+      { arrivedAt: "2026-09-20T13:50", reason: "计时设备更正" });
+    assert.equal(adjusted.status, 200);
+    const r201 = adjusted.json.arrivals.find(a => a.ring_no === "CHN-2026-201");
+    const r101 = adjusted.json.arrivals.find(a => a.ring_no === "CHN-2026-101");
+    assert.equal(r101.rank, 1); assert.equal(r201.rank, 2);
+    const logs = await get(`/api/audit?entityType=race&entityId=${rid}`);
+    assert.ok(logs.some(l => l.action === "arrival.adjust" && l.detail.reason === "计时设备更正"));
+  });
 });
 
-test("拦截:并发不同鸽报到全部成功且名次正确", async () => {
-  const app = await startApp();
-  try {
-    const race = await setupReleasedRace(app.base);
-    const arrivals = {
-      "CHN-2026-101": "2026-09-12T12:00:00.000Z", // 1000 米/分
-      "CHN-2026-102": "2026-09-12T11:10:00.000Z", // 1200 米/分
-      "CHN-2026-103": "2026-09-12T11:40:00.000Z"  // 1071.4286 米/分
-    };
-    const results = await Promise.all(
-      Object.entries(arrivals).map(([ringNo, arrivalTime]) =>
-        api(app.base, `/api/races/${race.id}/checkins`, { method: "POST", body: { ringNo, loft: LOFT, arrivalTime } }))
-    );
-    assert.ok(results.every(r => r.status === 201));
-    const detail = (await api(app.base, `/api/races/${race.id}`)).data;
-    const rankOf = ring => detail.checkins.find(c => c.ringNo === ring).rank;
-    assert.equal(rankOf("CHN-2026-102"), 1);
-    assert.equal(rankOf("CHN-2026-103"), 2);
-    assert.equal(rankOf("CHN-2026-101"), 3);
-    const onDisk = JSON.parse(await readFile(app.dbPath, "utf8"));
-    assert.deepEqual(
-      onDisk.races.find(r => r.id === race.id).checkins.map(c => [c.ringNo, c.rank]),
-      detail.checkins.map(c => [c.ringNo, c.rank]),
-      "并发落盘后磁盘与内存一致"
-    );
-  } finally {
-    await app.close();
-  }
-});
+describe("重启持久化", () => {
+  test("服务重启后赛事、名单、成绩、审计均可查询", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pigeon-restart-"));
+    cpSync(join(ROOT, "data", "pigeons.json"), join(dir, "pigeons.json"));
+    const proc = startServerOn(3096, dir);
+    try {
+      await waitHealthyOn(3096);
+      const create = await fetch(`http://127.0.0.1:3096/api/races`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "持久化赛", distance: 420000, lofts: ["北岸A棚"] })
+      }).then(r => r.json());
+      await postOn(3096, `/api/races/${create.id}/roster`, { lofts: ["北岸A棚"] });
+      await postOn(3096, `/api/races/${create.id}/release`, { releaseAt: "2026-09-20T07:00" });
+      await postOn(3096, `/api/races/${create.id}/arrivals`, { ringNo: "CHN-2026-101", arrivedAt: "2026-09-20T12:00" });
+      proc.kill("SIGTERM");
+      await sleep(400);
+      assert.ok(!existsSync(join(dir, "racing.db-journal")), "不应残留回滚日志");
 
-test("拦截:未入选赛鸽", async () => {
-  const app = await startApp();
-  try {
-    const race = await setupReleasedRace(app.base);
-    // 西山D棚的鸽子已登记但未入选本场(本场只圈东港C棚)
-    const res = await api(app.base, `/api/races/${race.id}/checkins`, {
-      method: "POST",
-      body: { ringNo: "CHN-2026-201", loft: OTHER_LOFT, arrivalTime: "2026-09-12T12:00:00.000Z" }
-    });
-    assert.equal(res.status, 403);
-    assert.equal(res.data.error, "not_in_roster");
-  } finally {
-    await app.close();
-  }
-});
-
-test("拦截:跨棚成绩", async () => {
-  const app = await startApp();
-  try {
-    const race = await setupReleasedRace(app.base);
-    // 入选鸽 101 档案棚号是东港C棚,却从西山D棚报到
-    const res = await api(app.base, `/api/races/${race.id}/checkins`, {
-      method: "POST",
-      body: { ringNo: "CHN-2026-101", loft: OTHER_LOFT, arrivalTime: "2026-09-12T12:00:00.000Z" }
-    });
-    assert.equal(res.status, 409);
-    assert.equal(res.data.error, "cross_loft");
-  } finally {
-    await app.close();
-  }
-});
-
-test("拦截:状态异常", async () => {
-  const app = await startApp();
-  try {
-    const race = await setupReleasedRace(app.base);
-    // 另建一场未放飞的赛事
-    const draft = (await api(app.base, "/api/races", {
-      method: "POST",
-      body: { name: "200公里热身", distanceKm: 200, lofts: [LOFT] }
-    })).data;
-    const early = await api(app.base, `/api/races/${draft.id}/checkins`, {
-      method: "POST",
-      body: { ringNo: "CHN-2026-101", loft: LOFT, arrivalTime: "2026-09-12T12:00:00.000Z" }
-    });
-    assert.equal(early.status, 409);
-    assert.equal(early.data.error, "invalid_status", "草稿状态不能报到");
-    // 已发布未放飞同样拦截
-    await api(app.base, `/api/races/${draft.id}/publish`, { method: "POST" });
-    const stillEarly = await api(app.base, `/api/races/${draft.id}/checkins`, {
-      method: "POST",
-      body: { ringNo: "CHN-2026-101", loft: LOFT, arrivalTime: "2026-09-12T12:00:00.000Z" }
-    });
-    assert.equal(stillEarly.data.error, "invalid_status");
-    // 重复放飞拦截
-    const reRelease = await api(app.base, `/api/races/${race.id}/release`, {
-      method: "POST",
-      body: { releaseTime: "2026-09-12T08:00:00.000Z" }
-    });
-    assert.equal(reRelease.data.error, "invalid_status");
-    // 归巢时间早于放飞时间拦截
-    const badTime = await api(app.base, `/api/races/${race.id}/checkins`, {
-      method: "POST",
-      body: { ringNo: "CHN-2026-101", loft: LOFT, arrivalTime: "2026-09-12T06:00:00.000Z" }
-    });
-    assert.equal(badTime.data.error, "invalid_time");
-  } finally {
-    await app.close();
-  }
-});
-
-test("审计留痕:名单、报到、排名、调整全程可查", async () => {
-  const app = await startApp();
-  try {
-    const race = await setupReleasedRace(app.base);
-    await api(app.base, `/api/races/${race.id}/checkins`, {
-      method: "POST",
-      body: { ringNo: "CHN-2026-101", loft: LOFT, arrivalTime: "2026-09-12T12:00:00.000Z" }
-    });
-    await api(app.base, `/api/races/${race.id}/checkins/CHN-2026-101/void`, {
-      method: "POST",
-      body: { reason: "扫描枪误读" }
-    });
-    const audit = (await api(app.base, `/api/audit?raceId=${race.id}`)).data;
-    const actions = audit.map(a => a.action);
-    for (const expected of ["race.create", "roster.set", "race.publish", "race.release", "checkin.record", "checkin.void"]) {
-      assert.ok(actions.includes(expected), `审计缺少 ${expected}`);
+      const proc2 = startServerOn(3096, dir);
+      await waitHealthyOn(3096);
+      const detail = await fetch(`http://127.0.0.1:3096/api/races/${create.id}`).then(r => r.json());
+      assert.equal(detail.name, "持久化赛");
+      assert.equal(detail.status, "released");
+      assert.equal(detail.arrivals[0].ring_no, "CHN-2026-101");
+      assert.equal(detail.arrivals[0].speed_m_per_min, +(420000 / 300).toFixed(3));
+      assert.ok(detail.audit.some(l => l.action === "race.publish"));
+      proc2.kill("SIGTERM");
+      await sleep(200);
+    } finally {
+      proc.kill("SIGTERM");
     }
-    const voided = (await api(app.base, `/api/races/${race.id}`)).data.checkins.find(c => c.ringNo === "CHN-2026-101");
-    assert.equal(voided.status, "void");
-    assert.equal(voided.voidReason, "扫描枪误读");
-  } finally {
-    await app.close();
-  }
-});
-
-test("失败恢复:落盘失败回滚,不留半笔记录", async () => {
-  let failNext = false;
-  const app = await startApp({
-    persistHook: async () => { if (failNext) { failNext = false; throw new Error("模拟磁盘写满"); } }
   });
-  try {
-    const race = await setupReleasedRace(app.base);
-    const auditBefore = (await api(app.base, "/api/audit")).data.length;
-    const fileBefore = await readFile(app.dbPath, "utf8");
-
-    failNext = true;
-    const res = await api(app.base, `/api/races/${race.id}/checkins`, {
-      method: "POST",
-      body: { ringNo: "CHN-2026-101", loft: LOFT, arrivalTime: "2026-09-12T12:00:00.000Z" }
-    });
-    assert.equal(res.status, 500, "落盘失败应返回错误");
-
-    // 内存态回滚:没有这笔报到,也没有这笔审计
-    const detail = (await api(app.base, `/api/races/${race.id}`)).data;
-    assert.equal(detail.checkins.length, 0, "失败后的内存态不应残留报到");
-    assert.equal((await api(app.base, "/api/audit")).data.length, auditBefore, "失败后的内存态不应残留审计");
-    // 磁盘文件原样未动
-    assert.equal(await readFile(app.dbPath, "utf8"), fileBefore, "落盘失败时磁盘文件保持原样");
-
-    // 同一羽鸽可重新报到(未被误判为重复报到)
-    const retry = await api(app.base, `/api/races/${race.id}/checkins`, {
-      method: "POST",
-      body: { ringNo: "CHN-2026-101", loft: LOFT, arrivalTime: "2026-09-12T12:00:00.000Z" }
-    });
-    assert.equal(retry.status, 201, "恢复后可正常报到");
-  } finally {
-    await app.close();
-  }
 });
 
-test("失败恢复:服务重启后数据仍可查询", async () => {
-  const app = await startApp();
-  const race = await setupReleasedRace(app.base);
-  await api(app.base, `/api/races/${race.id}/checkins`, {
-    method: "POST",
-    body: { ringNo: "CHN-2026-101", loft: LOFT, arrivalTime: "2026-09-12T12:00:00.000Z" }
+function startServerOn(port, dir) {
+  const proc = spawn(process.execPath, [join(ROOT, "server.js")], {
+    cwd: ROOT, env: { ...process.env, PORT: String(port), DATA_DIR: dir }, stdio: "ignore"
   });
-  const { dbPath, dir } = app;
-  // 模拟服务重启:关掉 HTTP 服务,在同一数据文件上起新实例
-  const closed = new Promise(resolve => app.server.close(resolve));
-  app.server.closeIdleConnections();
-  await closed;
-
-  const again = createApp({ dbPath });
-  await again.ready;
-  await new Promise(resolve => again.server.listen(0, "127.0.0.1", resolve));
-  const base2 = `http://127.0.0.1:${again.server.address().port}`;
-  const detail = (await api(base2, `/api/races/${race.id}`)).data;
-  assert.equal(detail.checkins.length, 1, "重启后报到记录仍在");
-  assert.equal(detail.checkins[0].ringNo, "CHN-2026-101");
-  const audit = (await api(base2, `/api/audit?raceId=${race.id}`)).data;
-  assert.ok(audit.length >= 5, "重启后审计留痕仍在");
-  const pigeons = (await api(base2, "/api/pigeons")).data;
-  assert.ok(pigeons.some(p => p.ringNo === "CHN-2026-101"), "重启后鸽只档案仍在");
-  const closed2 = new Promise(resolve => again.server.close(resolve));
-  again.server.closeIdleConnections();
-  await closed2;
-  await rm(dir, { recursive: true, force: true });
-});
-
-test("旧档案入口照常可用", async () => {
-  const app = await startApp();
-  try {
-    const home = await fetch(app.base + "/");
-    assert.equal(home.status, 200);
-    assert.match(await home.text(), /赛鸽血统环号登记站/);
-    const list = await api(app.base, "/api/pigeons");
-    assert.equal(list.status, 200);
-    assert.ok(list.data.some(p => p.ringNo === "CHN-2026-001"), "种子档案仍在");
-    const rel = await api(app.base, "/api/pigeons/CHN-2026-001/relation");
-    assert.equal(rel.status, 200);
-    assert.equal(rel.data.father.ringNo, "CHN-2022-188");
-    const transfer = await api(app.base, "/api/pigeons/CHN-2026-001/transfers", { method: "POST", body: { to: "新鸽主" } });
-    assert.equal(transfer.status, 200);
-    const dup = await api(app.base, "/api/pigeons", { method: "POST", body: { ringNo: "CHN-2026-001", owner: "x", color: "灰", loft: "北岸A棚" } });
-    assert.equal(dup.status, 409);
-    assert.equal(dup.data.error, "ring_exists");
-  } finally {
-    await app.close();
+  return proc;
+}
+async function waitHealthyOn(port) {
+  for (let i = 0; i < 40; i++) {
+    try { const r = await fetch(`http://127.0.0.1:${port}/healthz`); if (r.ok) return; } catch {}
+    await sleep(100);
   }
-});
+  throw new Error(`server on ${port} not healthy`);
+}
+async function postOn(port, path, body) {
+  const r = await fetch(`http://127.0.0.1:${port}${path}`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+  });
+  return { status: r.status, json: await r.json().catch(() => ({})) };
+}

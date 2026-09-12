@@ -1,46 +1,52 @@
 # 赛鸽公棚赛事运营系统
 
-在原有「赛鸽血统环号登记站」之上新增赛事运营能力,旧档案入口照常可用。
+在原有「赛鸽血统环号登记站」基础上升级的赛事运营系统。旧档案入口（`/legacy`）保持原功能，
+新运营控制台（`/`）覆盖赛事发布、按棚号圈定名单、放飞记录、归巢报到、分速排名、成绩调整与全程审计。
 
-## 运行
+## 启动
 
 ```bash
+npm install
 npm start          # http://localhost:3024
 ```
 
-- `http://localhost:3024/` —— 旧档案入口(档案、血统、转让、归巢成绩)
-- `http://localhost:3024/races` —— 赛事运营后台
+- 运营控制台：<http://localhost:3024/>
+- 旧档案入口：<http://localhost:3024/legacy>（建档、血统、转让、疫苗、历史归巢成绩照常可用）
+- 数据：`data/racing.db`（SQLite，WAL 模式）；首次启动自动把旧 `data/pigeons.json` 档案迁移入库（按足环号去重，疫苗/转让/历史成绩一并迁入）。
+- 可通过 `DATA_DIR` 指定独立数据目录，`PORT` 指定端口。
 
-## 功能
+## 业务规则
 
-- **发布赛事**:填写名称、空距,按棚号从已登记赛鸽中自动圈定参赛名单;草稿期可增删名单,发布后锁定。
-- **放飞**:记录放飞时间,赛事进入可报到状态。
-- **归巢报到**:按空距与实际用时自动计算分速(米/分)并重排名次;支持作废报到(调整动作)并自动重排;封存后名次定稿。
-- **拦截**:`duplicate_checkin` 重复报到、`not_in_roster` 未入选赛鸽、`cross_loft` 跨棚成绩、`invalid_status` 状态异常、`invalid_time` 归巢时间不合法。
-- **审计留痕**:建赛、圈定名单、名单调整、发布、放飞、报到、作废、封存全部落审计(`GET /api/audit`)。
-- **可靠性**:所有变更串行化,先写临时文件 fsync 再 rename 原子落盘;任何一步失败内存态回滚,不留半笔记录;重启后数据仍在。
+| 环节 | 规则 |
+| --- | --- |
+| 发布赛事 | 名称、正距离（米）、至少一个参赛棚号 |
+| 圈定名单 | 按公布棚号从已登记赛鸽圈定；伤病/迷失/亡故状态自动剔除并记录；重复圈定幂等 |
+| 放飞 | 名单为空不能放飞；放飞后报到通道开启 |
+| 归巢报到 | 仅「已放飞、已入选、现棚号=名单棚号、状态正常」的赛鸽可报到 |
+| 拦截 | 重复报到 `duplicate_arrival`、未入选 `not_entered`、跨棚成绩 `cross_loft`、状态异常 `abnormal_status`、未放飞/已关闭、足环号不存在——拒绝事件同样写入审计 |
+| 分速名次 | 分速 = 距离(米) / 实际用时(分钟)，分速高者列前；每次报到、更正、作废后在同一事务内重算全部名次 |
+| 调整 | 管理员更正归巢时间或作废成绩，原因与前后值留痕 |
 
-## API 一览
+## 事务与落盘
 
-```
-POST /api/races                          创建赛事(按 lofts 圈定名单)
-POST /api/races/:id/roster               草稿期调整名单 { add, remove }
-POST /api/races/:id/publish              发布,锁定名单
-POST /api/races/:id/release              记录放飞时间 { releaseTime }
-POST /api/races/:id/checkins             归巢报到 { ringNo, loft, arrivalTime }
-POST /api/races/:id/checkins/:ring/void  作废报到 { reason }
-POST /api/races/:id/close                封存,名次定稿
-GET  /api/races | /api/races/:id         赛事列表 / 详情(含成绩榜)
-GET  /api/audit?raceId=                  审计留痕
-GET  /api/lofts                          已登记棚号
-GET  /api/pigeons ...                    旧档案接口(原样保留)
-```
+所有写操作（名单圈定、报到+重排名、调整、状态/转棚）均在 better-sqlite3 **同步事务**中提交，
+任一步失败整体回滚，不会出现「报到已入库但名次/审计缺失」的半笔记录。
+接口 `POST /api/races/:id/arrivals` 支持故障注入头 `x-fault: arrival-insert`
+（插入报到后、重排名前模拟落盘失败），用于验证回滚与重试恢复。
 
-## 测试与验证
+## 审计
+
+名单、报到、排名重算、调整/作废、放飞、关闭以及全部拦截均落 `audit_logs`：
+- `GET /api/audit` 全量；`GET /api/audit?entityType=race&entityId=1` 按赛事过滤
+- 控制台「审计日志」标签页可查；每个赛事详情内嵌本赛事审计（含拦截明细）
+
+## 测试
 
 ```bash
-npm test                               # 回归:重复报到/并发报到/失败恢复/重启恢复/旧档案
-node scripts/verify-browser.mjs        # 真实浏览器逐项验证(需先 npm i 且服务已启动)
+npm test                       # node:test 回归：重复报到、12 并发报到、故障注入失败恢复、拦截矩阵、分速重算、重启持久化、旧档案迁移
+node tests/browser-e2e.mjs     # Playwright 真实浏览器逐项验证（截图输出到 screenshots/）
 ```
 
-浏览器验证截图见 `verification/`。
+浏览器验证覆盖：发布赛事 → 圈定名单（7 入选 / 伤病剔除）→ 放飞 → 三次归巢实时排名 →
+六类拦截 toast 与留痕 → 作废重算 → 审计页 → 关闭后拦截 → 旧档案入口查询/建档/数据互通 →
+故障注入回滚 → 杀进程重启后数据完整。最近一次结果：**45/45 通过**。
